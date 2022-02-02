@@ -3,20 +3,31 @@ import { withPageAuthRequired, getSession } from "@auth0/nextjs-auth0";
 import { getSupabase } from "../utils/supabase";
 import Link from "next/link";
 import { useState } from "react";
+import useSWR, { useSWRConfig } from "swr";
 
-const Index = ({ user, todos }) => {
-  console.log(todos);
+const Index = ({ user, ...props }) => {
+  const { mutate } = useSWRConfig();
+
+  // fetch data function from supabase
+  const fetcher = async () => {
+    const supabase = getSupabase(user.accessToken);
+    const { data, error } = await supabase.from("todo").select("*");
+    return { data, error };
+  };
+
+  // data fetching by SWR
+  const { data } = useSWR("fetch-all-todos", fetcher, {
+    fallbackData: props,
+  });
+  console.log(data);
   const [content, setContent] = useState("");
-  const [allTodos, setAllTodos] = useState([...todos]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     const supabase = getSupabase(user.accessToken);
-    const resp = await supabase
-      .from("todo")
-      .insert({ content, user_id: user.sub });
-    console.log(resp);
-    setAllTodos([...todos, ...resp.data]);
+    await supabase.from("todo").insert({ content, user_id: user.sub });
+    // explicitly mutate when post request happens
+    mutate("fetch-all-todos");
     setContent("");
   };
 
@@ -32,8 +43,8 @@ const Index = ({ user, todos }) => {
         <input onChange={(e) => setContent(e.target.value)} value={content} />
         <button>Add</button>
       </form>
-      {allTodos?.length > 0 ? (
-        allTodos.map((todo) => <p key={todo.id}>{todo.content}</p>)
+      {data.data && data.data.length > 0 ? (
+        data.data.map((todo) => <p key={todo.id}>{todo.content}</p>)
       ) : (
         <p>You have completed all todos!</p>
       )}
@@ -49,6 +60,7 @@ export const getServerSideProps = withPageAuthRequired({
 
     const supabase = getSupabase(accessToken);
 
+    // data fetching on the server side and sending as a fallback to client
     const { data: todos } = await supabase.from("todo").select("*");
 
     return {
